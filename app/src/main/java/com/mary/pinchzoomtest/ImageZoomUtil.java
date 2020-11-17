@@ -1,18 +1,13 @@
 package com.mary.pinchzoomtest;
 
-import android.app.Activity;
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
-import android.graphics.Point;
 import android.graphics.PointF;
-import android.os.Bundle;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.Log;
 import android.view.MotionEvent;
-import android.view.WindowManager;
-import android.view.WindowMetrics;
 import android.widget.ImageView;
-import android.widget.Toast;
 
 public class ImageZoomUtil {
     private static final String TAG = "MainActivity";
@@ -45,16 +40,15 @@ public class ImageZoomUtil {
     private final int ZOOM = 2;
     int mode = NONE;
 
+    RectF rect = new RectF();
+    RectF rect2 = new RectF(-1,0,deviceWidth,2048);
+
     //드래그 좌표 저장
     int posX1 = 0;
     int posX2 = 0;
 
-    //이동 좌표
-    float dx;
-    float dy;
-
     //최종 좌표 저장
-    float x1 = 0;
+    float x0 = 0;
     float x2 = 0;
     float y1 = 0;
     float y2 = 0;
@@ -63,7 +57,19 @@ public class ImageZoomUtil {
     float beforeDy;
 
     //스케일 저장
-    float scale;
+    float scale = 1f;
+    float lastScale;
+
+    //Zoom x1
+    float finalX1 = 1080f;
+
+    //DragDx 값 저장
+    float dragDx;
+    float dragDy;
+
+    //ZoomDx 값 저장
+    float zoomDx;
+    float zoomDy;
 
 
     //핀치 시 두 좌표간 거리 저장
@@ -85,6 +91,7 @@ public class ImageZoomUtil {
 
     public void settingImage(ImageView v, int deviceWidth, int deviceHeight) {
 
+
         ImageView view = v;
 
         this.deviceWidth = deviceWidth;
@@ -97,6 +104,7 @@ public class ImageZoomUtil {
         x2 = image.getWidth();
         y1 = (deviceHeight / 2) - (displayY * 1.5f);
         view.setImageMatrix(matrix);
+
     }
 
     public void touchEvent(ImageView v, MotionEvent event) {
@@ -126,11 +134,18 @@ public class ImageZoomUtil {
                 if (mode == DRAG) { //드래그 중일 시 XY값을 변화시키며 위치를 이동한다.
                     matrix.set(savedMatrix);
 
-                    dx = event.getX() - start.x;
-                    dy = event.getY() - start.y;
-                    
+                    rect.setEmpty();
+                    matrix.mapRect(rect);
+
+                    Log.d(TAG, "touchEvent: rect.centerX() "+ rect.right);
+                    Log.d(TAG, "touchEvent: "+rect.width());
+
+                    float dragDx = event.getX() - start.x;
+                    float dragDy = event.getY() - start.y;
+
                     float[] values = new float[9];
                     matrix.getValues(values);
+
                     float finalScale = values[Matrix.MSCALE_X];
 
                     if (finalScale == 1) {
@@ -138,19 +153,37 @@ public class ImageZoomUtil {
                         break;
                     }
 
-                    if (values[Matrix.MTRANS_X] + dx >= 0) {
+                    if (values[Matrix.MTRANS_X] + dragDx >= 0) {
                         Log.d(TAG, "touchEvent: x1 정지이벤트");
                         matrix.setScale(finalScale, finalScale);
-                        matrix.postTranslate(0, (values[Matrix.MTRANS_Y])+dy);
-                        
+                        matrix.postTranslate(0, (values[Matrix.MTRANS_Y]) + dragDy);
+
                         view.setImageMatrix(matrix);
                         return;
                     }
 
-                    if(values[Matrix.MTRANS_Y]+dy <0){
-                        Log.d(TAG, "touchEvent: y1 정지이벤트");
-                        //todo
+
+//                    Log.d(TAG, "touchEvent: values[Matrix.MTRANS_X]+ (finalScale*image.getWidth()) :" + (values[Matrix.MTRANS_X] + (finalScale * image.getWidth())));
+//                    Log.d(TAG, "touchEvent: deviceWidth :" + image.getWidth());
+//                    Log.d(TAG, "touchEvent: values[Matrix.MTRANS_X]) :" + values[Matrix.MTRANS_X]);
+//                    Log.d(TAG, "touchEvent: (finalScale*image.getWidth()) :" + (finalScale * image.getWidth()));
+//                    Log.d(TAG, "touchEvent: (finalScale) :" + (finalScale));
+                    //Log.d(TAG, "touchEvent: dx :" +dx );
+
+                    //시작점의 x좌표 + 원래 사진 길이 * 비율 == x2좌표?
+
+
+                    Log.d(TAG, "touchEvent: values[Matrix.MTRANS_X]+dragDx : "+(values[Matrix.MTRANS_X]+finalScale*deviceWidth+dragDx));
+                    if ((values[Matrix.MTRANS_X]+finalScale*deviceWidth+dragDx)<=deviceWidth) {
+                        Log.d(TAG, "touchEvent: x2 정지이벤트");
+
+                        matrix.setScale(finalScale, finalScale);
+                        matrix.postTranslate((-(finalScale-1)*deviceWidth), (values[Matrix.MTRANS_Y]) + dragDy);
+
+                        view.setImageMatrix(matrix);
+                        return;
                     }
+
 
 //                    if(y1 + dy <= 0){
 //                        Log.d(TAG, "touchEvent: y1 정지이벤트");
@@ -178,106 +211,126 @@ public class ImageZoomUtil {
 //                    }
 
 
-
                     mode = DRAG;
                     Log.d(TAG, "touchEvent: mode : drag");
-                    matrix.postTranslate(dx, dy);
+                    matrix.postTranslate(dragDx, dragDy);
 
-                    beforeDy = values[Matrix.MTRANS_Y]+dy;
+                    beforeDy = values[Matrix.MTRANS_Y] + dragDy;
 
 
                 } else if (mode == ZOOM) {
 
+                    rect.setEmpty();
+                    matrix.mapRect(rect);
+
                     newDist = spacing(event);
 
-                    if (newDist > 10f) {
+                    float[] values = new float[9];
+                    matrix.getValues(values);
+
+                    width = values[Matrix.MSCALE_X] * image.getWidth();
+
+                    matrix.set(savedMatrix);
+                    scale = (newDist / oldDist);
+
+//                    Log.d(TAG, "touchEvent: values[Matrix.MTRANS_X] " + (((finalX1 - mid.x) * (scale - 1)) + finalX1 +
+//                            zoomDx));
+//                    Log.d(TAG, "touchEvent: dx : " + (mid.x));
+//                    Log.d(TAG, "touchEvent: dx : " + (start.x));
+//                    Log.d(TAG, "touchEvent: dx : " + (values[Matrix.MTRANS_X]));
+//                    Log.d(TAG, "touchEvent: dx : " + deviceWidth);
+
                         matrix.set(savedMatrix);
-                        scale = (newDist / oldDist);
+                        zoomDx = event.getX() - start.x;
+                        zoomDy = event.getY() - start.y;
 
-
-                        if (scale > 0.95 || scale < 1.05) {
-                            matrix.set(savedMatrix);
-                            float dx = event.getX() - start.x;
-                            float dy = event.getY() - start.y;
-
-
-                            matrix.postTranslate(dx, dy);
-
-                        } else {
-                            mode = ZOOM;
-                        }
-
-                        float[] values = new float[9];
-                        matrix.getValues(values);
-                        width = values[Matrix.MSCALE_X] * image.getWidth();
-
-// 줌 아웃 코드 삭제
-//                        if (width * scale < image.getWidth() / 2) {
-//                            Log.d(TAG, "touchEvent: 크기가 작아짐");
-//                            if (isZoomout) {
-//
-//                                Log.d(TAG, "touchEvent: zoomImage : " + values[Matrix.MSCALE_X]);
-//                                matrix.postScale(scale, scale, mid.x, mid.y);
-//
-//                                mode = NONE;
-//                                lastEvent = null;
-//                                view.setImageMatrix(matrix);
-//                                isZoomout = false;
-//                                return;
-//                            }
-//
-//                            if (scale > 1) {
-//                                //Log.d(TAG, "touchEvent: scale : "+scale);
-//                                return;
-//
-//                            } else {
-//                                //Log.d(TAG, "touchEvent: scale else : "+scale);
-//                                isZoomout = true;
-//                                matrix.postScale(scale, scale, mid.x, mid.y);
-//                            }
-
-                        if(width * scale < image.getWidth()){
-
-                            matrix.postScale(1,1, mid.x, mid.y);
-                            isReset =true;
-                            break;
-
-                        } else if (width * scale >= image.getWidth() * 4) {
-
-                            if (isZoomIn) {
-                                isZoomIn = false;
-                                matrix.postScale(scale, scale, mid.x, mid.y);
-
-                                mode = NONE;
-                                lastEvent = null;
+                        if (values[Matrix.MTRANS_X] + zoomDx >= 0) {
+                            Log.d(TAG, "touchEvent: 하아아" + scale);
+                            if (width * scale < image.getWidth()) {
+                                matrix.preScale(1, 1);
                                 view.setImageMatrix(matrix);
+                                getFinalX1();
                                 return;
                             }
 
-                            if (scale > 1) {
-                                //Log.d(TAG, "touchEvent: scale : "+scale);
-                                return;
+                            matrix.preScale(scale, scale,0, zoomDy);
+                            matrix.preTranslate(0, zoomDy);
+                            view.setImageMatrix(matrix);
+                            return;
 
-                            } else {
-                                //Log.d(TAG, "touchEvent: scale else : "+scale);
-
-                                matrix.postScale(scale, scale, mid.x, mid.y);
-                            }
-
-                            isZoomIn = true;
-
+                        } else if ((((finalX1 - mid.x) * (scale - 1)) + finalX1 + zoomDx) <=1080) {
+                            Log.d(TAG, "touchEvent: 뭐야 동작 왜이래?");
+//                            matrix.postTranslate(-1080*(scale-1) , zoomDy);
+//                            matrix.preScale(scale, scale);
+//                            view.setImageMatrix(matrix);
+//                            finalX1=1080;
+//                            return;
                         }
 
-                        if(event.getX()-values[Matrix.MTRANS_X]*scale < event.getX()){
-                            Log.d(TAG, "touchEvent: 목표 맞나?");
-                            //여백이 생길때의 리스너
-                            //todo
-                        }
+                    if (event.getX() - values[Matrix.MTRANS_X] * scale < event.getX()) {
+                        Log.d(TAG, "touchEvent: 목표 맞나?");
+                        //여백이 생길때의 리스너
+                        //matrix.preTranslate(0, zoomDy);
+                        //matrix.setTranslate(0, mid.y/2);
+                        //matrix.postScale(scale, scale, 0, zoomDy);
+                        //matrix.setScale(scale, scale);
 
-                        matrix.postScale(scale, scale, mid.x, mid.y);
+
+
+                        matrix.preScale(scale, scale,0, zoomDy);
+                        matrix.preTranslate(0, zoomDy);
+
+                        view.setImageMatrix(matrix);
+                        return;
+
                     }
 
+                        matrix.postTranslate(zoomDx, zoomDy);
+
+                    if (width * scale < image.getWidth()) {
+
+                        Log.d(TAG, "touchEvent: ??");
+                        isReset = true;
+                        matrix.setScale(1, 1);
+                        matrix.setTranslate(0, mid.y/2);
+                        mode = NONE;
+                        lastEvent = null;
+
+                        view.setImageMatrix(matrix);
+                        return;
+
+                    } else if (width * scale >= image.getWidth() * 16) {
+                        Log.d(TAG, "touchEvent: ??? : zoom in : " + isZoomIn);
+                        if (isZoomIn) {
+                            Log.d(TAG, "touchEvent: ???");
+                            isZoomIn = false;
+                            matrix.preScale(4, 4, mid.x, mid.y);
+
+                            mode = NONE;
+                            lastEvent = null;
+                            view.setImageMatrix(matrix);
+                            return;
+                        }
+
+                        if (scale > 1) {
+                            Log.d(TAG, "touchEvent: scale : " + scale);
+                            return;
+
+                        } else {
+                            //Log.d(TAG, "touchEvent: scale else : "+scale);
+                            isZoomIn = true;
+                            matrix.postScale(scale, scale, mid.x, mid.y);
+                        }
+
+
+                    }
+
+                    matrix.postScale(scale, scale, mid.x, mid.y);
+
+                    getFinalX1();
+
                 }
+
 
                 break;
 
@@ -290,9 +343,9 @@ public class ImageZoomUtil {
                 mode = NONE;
                 lastEvent = null;
 
-                if(isReset){
+                if (isReset) {
                     matrix.setTranslate(0, (deviceHeight / 2) - (image.getHeight() * 1.5f));
-                    isReset =false;
+                    isReset = false;
                 }
                 break;
 
@@ -338,6 +391,7 @@ public class ImageZoomUtil {
 
     }
 
+
     private float spacing(MotionEvent event) {
         float x = event.getX(0) - event.getX(1);
         float y = event.getY(0) - event.getY(1);
@@ -357,6 +411,15 @@ public class ImageZoomUtil {
         double delta_y = (event.getY(0) - event.getY(1));
         double radians = Math.atan2(delta_y, delta_x);
         return (float) Math.toDegrees(radians);
+    }
+
+    private void getFinalX1(){
+        finalX1 = ((finalX1 - mid.x) * (scale -lastScale - 1)) + finalX1 + zoomDx + dragDx;
+        Log.d(TAG, "touchEvent: " + finalX1);
+        zoomDx = 0;
+        dragDx = 0;
+        lastScale = scale;
+        scale=1;
     }
 
 }
