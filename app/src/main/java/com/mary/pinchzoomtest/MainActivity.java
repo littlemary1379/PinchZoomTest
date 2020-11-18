@@ -70,21 +70,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void setSelectedImage() {
-        Bitmap image = convertDrawableToBitmap(R.drawable.test, 50, 50);
-
-
-
-        int width = linearLayout.getWidth()/2;
-
-        Log.d(TAG, "setSelectedImage: "+width);
+        Bitmap image = convertDrawableToBitmap(R.drawable.main_flower, 50, 50);
 
         int nh = (int) (image.getHeight() * 410 / image.getWidth());
+
+        Log.d(TAG, "setSelectedImage: nh :"+nh);
+
         Bitmap scaled = Bitmap.createScaledBitmap(image, 410, nh, true);
         imageView.setImageBitmap(scaled);
 
         int deviceWidth = linearLayout.getWidth();
         int deviceHeight = linearLayout.getHeight();
-
 
         imageView.setImageMatrix(new Matrix());
         imageZoomUtil = new ImageZoomUtil(scaled);
