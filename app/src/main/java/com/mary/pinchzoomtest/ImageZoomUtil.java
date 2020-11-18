@@ -3,8 +3,6 @@ package com.mary.pinchzoomtest;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.PointF;
-import android.graphics.Rect;
-import android.graphics.RectF;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.widget.ImageView;
@@ -14,11 +12,7 @@ public class ImageZoomUtil {
 
     private Bitmap image;
 
-    private float height;
     private float width;
-    private float locationWidth;
-    private float X;
-    private float Y;
 
     private Matrix matrix = new Matrix();
     private Matrix savedMatrix = new Matrix();
@@ -39,25 +33,22 @@ public class ImageZoomUtil {
     private final int NONE = 0;
     private final int DRAG = 1;
     private final int ZOOM = 2;
-    int mode = NONE;
 
+    private final int PINCHDRAG = 3;
+    private final int PINCHZOOM = 4;
+
+    int mode = NONE;
+    int pinchMode = NONE;
+
+    //초기에 Matrix 화면의 크기를 제어할 때, 받아오게 되는 Y location
+    float setY = 0;
 
     //드래그 좌표 저장
     int posX1 = 0;
     int posX2 = 0;
 
-    //최종 좌표 저장
-    float x0 = 0;
-    float x2 = 0;
-    float y1 = 0;
-    float y2 = 0;
-
     //스케일 저장
     float scale = 1f;
-    float lastScale;
-
-    //Zoom x1
-    float finalX1 = 1080f;
 
     //DragDx 값 저장
     float dragDx;
@@ -66,7 +57,6 @@ public class ImageZoomUtil {
     //ZoomDx 값 저장
     float zoomDx;
     float zoomDy;
-
 
     //핀치 시 두 좌표간 거리 저장
     float oldDist = 1f;
@@ -87,7 +77,6 @@ public class ImageZoomUtil {
 
     public void settingImage(ImageView v, int deviceWidth, int deviceHeight) {
 
-
         ImageView view = v;
 
         this.deviceWidth = deviceWidth;
@@ -97,8 +86,7 @@ public class ImageZoomUtil {
 
         matrix.set(savedMatrix);
         matrix.postTranslate(0, ((deviceHeight / 2) - (displayY) * 1.5f));
-        x2 = image.getWidth();
-        y1 = (deviceHeight / 2) - (displayY * 1.5f);
+        setY = (deviceHeight / 2) - (displayY * 1.5f);
         view.setImageMatrix(matrix);
 
     }
@@ -112,20 +100,19 @@ public class ImageZoomUtil {
             //손가락 하나 터치
             case MotionEvent.ACTION_DOWN:
                 mode = DRAG;
-                Log.d(TAG, "touchEvent: 사진 내부에 들어옴");
                 savedMatrix.set(matrix);
                 start.set(event.getX(), event.getY());
                 posX1 = (int) event.getX();
                 posX2 = (int) event.getY();
-
-                Log.d(TAG, "onTouchEvent: mode : " + mode);
-
                 break;
 
             //드래그
             case MotionEvent.ACTION_MOVE:
 
                 if (mode == DRAG) { //드래그 중일 시 XY값을 변화시키며 위치를 이동한다.
+
+                    Log.d(TAG, "touchEvent: mode : 드래그");
+
                     matrix.set(savedMatrix);
 
                     dragDx = event.getX() - start.x;
@@ -221,7 +208,6 @@ public class ImageZoomUtil {
                     }
 
                     //드래그 시 화면을 넘지 못하도록 y조작 필요
-
                     if ((float) image.getHeight() / image.getWidth() * deviceWidth * finalScale > deviceHeight) {
                         Log.d(TAG, "touchEvent: 이게 얼만디" + ((deviceHeight - (float) image.getHeight() / image.getWidth() * deviceWidth * finalScale)));
 
@@ -260,100 +246,73 @@ public class ImageZoomUtil {
 
 
                     mode = DRAG;
-                    Log.d(TAG, "touchEvent: mode : drag");
                     matrix.postTranslate(dragDx, dragDy);
 
                 } else if (mode == ZOOM) {
 
-
                     newDist = spacing(event);
+
+                    matrix.set(savedMatrix);
+                    scale = (newDist / oldDist);
+
+                    matrix.set(savedMatrix);
+                    zoomDx = event.getX() - start.x;
+                    zoomDy = event.getY() - start.y;
 
                     float[] values = new float[9];
                     matrix.getValues(values);
 
                     width = values[Matrix.MSCALE_X] * image.getWidth();
-                    locationWidth = values[Matrix.MSCALE_X] * deviceWidth;
 
-                    matrix.set(savedMatrix);
-                    scale = (newDist / oldDist);
-
-//                    Log.d(TAG, "touchEvent: values[Matrix.MTRANS_X] " + (((finalX1 - mid.x) * (scale - 1)) + finalX1 +
-//                            zoomDx));
-//                    Log.d(TAG, "touchEvent: dx : " + (mid.x));
-//                    Log.d(TAG, "touchEvent: dx : " + (start.x));
-//                    Log.d(TAG, "touchEvent: dx : " + (values[Matrix.MTRANS_X]));
-//                    Log.d(TAG, "touchEvent: dx : " + deviceWidth);
-
-                    matrix.set(savedMatrix);
-                    zoomDx = event.getX(1) - start.x;
-                    zoomDy = event.getY() - start.y;
-
-                    if (scale > 0.95 && scale < 1.05) {
-
-                        if (values[Matrix.MTRANS_X] + zoomDx >= 0) {
-
-                            if (width * scale < image.getWidth()) {
-                                Log.d(TAG, "touchEvent: 핀치 이동 x1 정지 이벤트");
-                                matrix.preTranslate(0, zoomDy);
-                                matrix.preScale(1, 1);
-                                view.setImageMatrix(matrix);
-                                return;
-                            }
-
-                            matrix.preScale(scale, scale);
-                            matrix.postTranslate(0, zoomDy);
-                            view.setImageMatrix(matrix);
-                            return;
-
-                        } else if ((values[Matrix.MTRANS_X] - (mid.x - values[Matrix.MTRANS_X]) * (scale - 1) + locationWidth * scale + zoomDx) <= deviceWidth) {
-
-                            matrix.postScale(scale, scale, mid.x, mid.y);
-                            matrix.postTranslate(0, zoomDy);
-
-                            view.setImageMatrix(matrix);
-                            return;
-                        }
-
-                        matrix.postTranslate(zoomDx, zoomDy);
-                    }
-
-
-//                    if (event.getX() - values[Matrix.MTRANS_X] * scale < event.getX()) {
-//                        Log.d(TAG, "touchEvent: 목표 맞나?");
-//                        //여백이 생길때의 리스너
-//                        //matrix.preTranslate(0, zoomDy);
-//                        //matrix.setTranslate(0, mid.y/2);
-//                        //matrix.postScale(scale, scale, 0, zoomDy);
-//                        //matrix.setScale(scale, scale);
+//                    핀치 드래그
+//                    if (scale > 0.95 && scale < 1.05) {
 //
+//                        pinchMode = PINCHDRAG;
 //
-//                        matrix.preScale(scale, scale, 0, zoomDy);
-//                        matrix.preTranslate(0, zoomDy);
+//                        Log.d(TAG, "touchEvent: 핀치 이동 모션");
 //
-//                        view.setImageMatrix(matrix);
-//                        return;
+//                        Log.d(TAG, "touchEvent: : "+values[Matrix.MTRANS_X]);
+//                        Log.d(TAG, "touchEvent: : "+zoomDx);
 //
-//                    }
+//                        if (values[Matrix.MTRANS_X] + zoomDx >= 0) {
+//                            Log.d(TAG, "touchEvent: 핀치 x1 제어");
+//                            matrix.postTranslate(0, zoomDy);
+//                            break;
+//
+//                        } else if ((values[Matrix.MTRANS_X] + deviceWidth + zoomDx) <= deviceWidth) {
+//                            Log.d(TAG, "touchEvent: 핀치 x2 제어");
+//                            matrix.postTranslate(0, zoomDy);
+//                            break;
+//                        }
+//
+//                        matrix.postTranslate(zoomDx, zoomDy);
+//                        break;
+//
+//                    } else {
 
+                    Log.d(TAG, "touchEvent: 핀치 줌 모션");
 
                     if (width * scale < image.getWidth()) {
 
-                        Log.d(TAG, "touchEvent: ??");
+                        //줌인을 시작할 때, 터치 실수로 인해 줌이 줄어 아래의 translate 이동 코드가 동작되지 않도록 제어하는 코드
+                        if(values[Matrix.MSCALE_X]<=1){
+                            break;
+                        }
+
                         Log.d(TAG, "touchEvent: ?? : zoom out 제한 코드");
                         isReset = true;
                         matrix.setScale(1, 1);
-                        matrix.setTranslate(0, mid.y / 2);
+                        matrix.postTranslate(0, mid.y - (image.getWidth() / image.getHeight() * deviceWidth) / 2);
                         mode = NONE;
                         lastEvent = null;
 
                         view.setImageMatrix(matrix);
-                        return;
+                        break;
+
 
                     } else if (width * scale >= image.getWidth() * 16) {
-                        Log.d(TAG, "touchEvent: ??? : zoom in : " + isZoomIn);
-                        Log.d(TAG, "touchEvent: ??? : zoom in 제한 코드");
+                        Log.d(TAG, "touchEvent: zoom in 제한 코드");
                         if (isZoomIn) {
-                            Log.d(TAG, "touchEvent: ???");
                             isZoomIn = false;
                             matrix.preScale(4, 4, mid.x, mid.y);
 
@@ -364,11 +323,9 @@ public class ImageZoomUtil {
                         }
 
                         if (scale > 1) {
-                            Log.d(TAG, "touchEvent: scale : " + scale);
                             return;
 
                         } else {
-                            //Log.d(TAG, "touchEvent: scale else : "+scale);
                             isZoomIn = true;
                             matrix.postScale(scale, scale, mid.x, mid.y);
                         }
@@ -376,13 +333,22 @@ public class ImageZoomUtil {
 
                     }
 
-                    matrix.postScale(scale, scale, mid.x, mid.y);
 
+//                        if (pinchMode == PINCHDRAG) {
+//                            matrix.postTranslate(zoomDx, zoomDy);
+//                        } else {
+
+//                        }
+
+
+                    matrix.postScale(scale, scale, mid.x, mid.y);
+                    pinchMode = PINCHZOOM;
 
                 }
 
 
                 break;
+//                }
 
             case MotionEvent.ACTION_UP: // 첫 손가락을 뗄 경우
                 Log.d(TAG, "touchEvent: ACTION_UP");
@@ -392,6 +358,19 @@ public class ImageZoomUtil {
 
                 mode = NONE;
                 lastEvent = null;
+
+                float[] values = new float[9];
+                matrix.getValues(values);
+
+                if (values[Matrix.MTRANS_X] > 0) {
+                    Log.d(TAG, "touchEvent: 줌 아웃 시 x1 왼쪽이 빔");
+                    matrix.setScale(values[Matrix.MSCALE_X], values[Matrix.MSCALE_Y]);
+                    matrix.postTranslate(0, values[Matrix.MTRANS_Y]);
+                } else if (values[Matrix.MTRANS_X] + deviceWidth * values[Matrix.MSCALE_X] < deviceWidth) {
+                    Log.d(TAG, "touchEvent: 줌 아웃 시 x2 오른쪽이 빔");
+                    matrix.setScale(values[Matrix.MSCALE_X], values[Matrix.MSCALE_Y]);
+                    matrix.postTranslate(-((values[Matrix.MSCALE_X] * deviceWidth) - deviceWidth), values[Matrix.MTRANS_Y]);
+                }
 
                 if (isReset) {
                     matrix.setTranslate(0, (deviceHeight / 2) - (image.getHeight() * 1.5f));
@@ -416,23 +395,7 @@ public class ImageZoomUtil {
         view.setImageMatrix(matrix);
 
 
-// 줌은 되지만 드래그가 안 되는 코드 ㅜㅜ
-//    private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener{
-//        @Override
-//        public boolean onScale(ScaleGestureDetector detector) {
-//            mScaleFactor *= scaleGestureDetector.getScaleFactor();
-//
-//            mScaleFactor = Math.max(0.1f, Math.min(mScaleFactor,10.0f));
-//
-//            imageView.setScaleX(mScaleFactor);
-//            imageView.setScaleY(mScaleFactor);
-//
-//            return true;
-//        }
-//    }
-
     }
-
 
     private float spacing(MotionEvent event) {
         float x = event.getX(0) - event.getX(1);
